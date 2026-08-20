@@ -6,17 +6,18 @@
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UIS = game:GetService("UserInputService")
-local TweenService = game:GetService("TweenService")
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 
 --==================================================
--- CLEAN
+-- CLEAN OLD UI
 --==================================================
 
 local old = playerGui:FindFirstChild("StoreUI")
-if old then old:Destroy() end
+if old then
+	old:Destroy()
+end
 
 --==================================================
 -- SETTINGS
@@ -37,33 +38,34 @@ local OBJECT_ORBIT_TILT = 0
 
 --==================================================
 -- PRESET 1
--- 最初から存在
--- 保存処理はしない
+-- 最初から存在するプリセット
+-- 永続保存はしない
 --==================================================
 
 local PRESET1_FLY = true
 local PRESET1_FLY_SPEED = 60
 local PRESET1_LOOK = true
 
--- 自分は初期値にしない
+-- 自分は初期対象にしない
 local preset1LookPlayer = nil
 
 --==================================================
 -- STATE
 --==================================================
 
-local flyEnabled = false
+-- 最初からFly ON
+local flyEnabled = true
+
 local ragdollEnabled = false
 local lookEnabled = false
 local thirdPerson = false
 
 local selectedPlayer = player
 
-local flyConnection
-local lookConnection
-local orbitConnection
+local flyConnection = nil
+local lookConnection = nil
+local orbitConnection = nil
 
-local flyVelocity
 local ragdollData = {}
 
 local flyUpHeld = false
@@ -78,18 +80,18 @@ local orbitScanTimer = 0
 --==================================================
 
 local C = {
-	background = Color3.fromRGB(7,8,12),
-	panel = Color3.fromRGB(15,17,23),
-	panel2 = Color3.fromRGB(22,24,32),
+	background = Color3.fromRGB(8,9,13),
+	panel = Color3.fromRGB(17,18,24),
+	panel2 = Color3.fromRGB(23,24,31),
 
 	white = Color3.fromRGB(245,245,248),
-	gray = Color3.fromRGB(155,158,168),
+	gray = Color3.fromRGB(160,162,170),
 
-	border = Color3.fromRGB(65,68,80),
+	border = Color3.fromRGB(70,72,82),
 
-	red = Color3.fromRGB(235,65,75),
-	green = Color3.fromRGB(75,220,135),
-	blue = Color3.fromRGB(85,160,255)
+	red = Color3.fromRGB(225,75,80),
+	green = Color3.fromRGB(80,210,130),
+	blue = Color3.fromRGB(90,165,255)
 }
 
 --==================================================
@@ -108,108 +110,66 @@ gui.Parent = playerGui
 -- HELPERS
 --==================================================
 
-local function corner(obj,r)
+local function corner(obj, radius)
 	local c = Instance.new("UICorner")
-	c.CornerRadius = UDim.new(0,r)
+	c.CornerRadius = UDim.new(0, radius)
 	c.Parent = obj
 end
 
-local function stroke(obj,color,thickness)
+local function stroke(obj, color, thickness)
 	local s = Instance.new("UIStroke")
 	s.Color = color or C.border
 	s.Thickness = thickness or 1.5
-	s.Transparency = 0
 	s.Parent = obj
 	return s
 end
 
-local function tween(obj,time,props,style,direction)
-	local info = TweenInfo.new(
-		time or .2,
-		style or Enum.EasingStyle.Quart,
-		direction or Enum.EasingDirection.Out
-	)
-
-	local t = TweenService:Create(obj,info,props)
-	t:Play()
-	return t
-end
-
-local function buttonPress(b)
-	local original = b.Size
-
-	tween(
-		b,
-		0.07,
-		{Size = UDim2.new(
-			original.X.Scale,
-			original.X.Offset-4,
-			original.Y.Scale,
-			original.Y.Offset-4
-		)}
-	)
-
-	task.delay(0.07,function()
-		if b and b.Parent then
-			tween(b,0.12,{Size = original})
-		end
-	end)
-end
-
-local function makeButton(parent,text)
+local function makeButton(parent, text)
 	local b = Instance.new("TextButton")
 
 	b.Size = UDim2.new(1,0,0,58)
 	b.BackgroundColor3 = C.panel2
 	b.BorderSizePixel = 0
+
 	b.Text = text
 	b.Font = Enum.Font.GothamBold
-	b.TextSize = 18
+	b.TextSize = 19
 	b.TextColor3 = C.white
+
 	b.AutoButtonColor = false
 	b.Parent = parent
 
 	corner(b,11)
 	stroke(b)
 
-	b.MouseEnter:Connect(function()
-		tween(b,0.15,{
-			BackgroundColor3 = Color3.fromRGB(34,37,48)
-		})
-	end)
-
-	b.MouseLeave:Connect(function()
-		tween(b,0.15,{
-			BackgroundColor3 = C.panel2
-		})
-	end)
-
-	b.MouseButton1Click:Connect(function()
-		buttonPress(b)
-	end)
-
 	return b
 end
 
-local function setButtonState(b,name,state)
-	b.Text = name.."     "..(state and "ON" or "OFF")
+local function setButtonState(b, name, state)
+	b.Text = name .. "     " .. (state and "ON" or "OFF")
+	b.TextColor3 = state and C.green or C.white
+end
 
-	tween(
-		b,
-		0.18,
-		{
-			TextColor3 = state and C.green or C.white
-		}
-	)
+local function getCharacter(plr)
+	return plr and plr.Character
 end
 
 local function getRoot(plr)
-	local c = plr and plr.Character
-	return c and c:FindFirstChild("HumanoidRootPart")
+	local character = getCharacter(plr)
+
+	if not character then
+		return nil
+	end
+
+	return character:FindFirstChild("HumanoidRootPart")
 end
 
+--==================================================
+-- PLAYER ICON
+--==================================================
+
 local function getPlayerIcon(plr)
-	local ok,img = pcall(function()
+	local success, image = pcall(function()
 		return Players:GetUserThumbnailAsync(
 			plr.UserId,
 			Enum.ThumbnailType.HeadShot,
@@ -217,7 +177,11 @@ local function getPlayerIcon(plr)
 		)
 	end)
 
-	return ok and img or ""
+	if success and image and image ~= "" then
+		return image
+	end
+
+	return ""
 end
 
 --==================================================
@@ -229,7 +193,33 @@ local store = Instance.new("TextButton")
 store.Name = "StoreButton"
 store.AnchorPoint = Vector2.new(0,0.5)
 store.Position = UDim2.new(0.02,0,0.5,0)
-store.Size = UDim2.new(0,155,0,58)
+store.Size = UDim2.new(0,150,0,55)
 
 store.BackgroundColor3 = C.panel
-store.BorderSize
+store.BorderSizePixel = 0
+
+store.Text = "▣  STORE"
+store.Font = Enum.Font.GothamBold
+store.TextSize = 20
+store.TextColor3 = C.white
+
+store.AutoButtonColor = false
+store.ZIndex = 1000
+store.Parent = gui
+
+corner(store,14)
+stroke(store)
+
+--==================================================
+-- MAIN
+--==================================================
+
+local main = Instance.new("Frame")
+
+main.Name = "Main"
+main.AnchorPoint = Vector2.new(0.5,0.5)
+main.Position = UDim2.fromScale(UI_X,UI_Y)
+main.Size = UDim2.fromScale(0.82,0.78)
+
+main.BackgroundColor3 = C.background
+main.BorderSizePixel 
